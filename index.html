@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>High-Sensitivity Chant Counter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .meter-bar { transition: height 0.1s ease; }
+        .active-glow { box-shadow: 0 0 20px rgba(217, 119, 6, 0.5); }
+    </style>
+</head>
+<body class="bg-stone-50 text-stone-800 min-h-screen flex flex-col items-center justify-center p-6">
+
+    <div class="text-center mb-6">
+        <p class="text-xs uppercase tracking-widest text-stone-400 font-bold">Total Malas</p>
+        <h2 id="mala-display" class="text-6xl font-serif text-amber-700">0</h2>
+    </div>
+
+    <div id="circle" class="relative w-72 h-72 rounded-full bg-white shadow-xl flex flex-col items-center justify-center border-4 border-stone-200 transition-all">
+        <span id="bead-display" class="text-8xl font-bold">0</span>
+        <span class="text-stone-300 text-sm italic">of 108</span>
+        
+        <div class="absolute bottom-10 flex items-end gap-1 h-10">
+            <div id="v-1" class="w-1 bg-amber-200 rounded-full meter-bar" style="height: 10%"></div>
+            <div id="v-2" class="w-1 bg-amber-400 rounded-full meter-bar" style="height: 20%"></div>
+            <div id="v-3" class="w-1 bg-amber-200 rounded-full meter-bar" style="height: 10%"></div>
+        </div>
+    </div>
+
+    <div class="mt-10 w-full max-w-xs bg-white p-6 rounded-3xl shadow-md border border-stone-100">
+        <label class="block text-sm font-bold text-stone-500 mb-4 text-center">Sensitivity (Adjust to your voice)</label>
+        <input type="range" id="sensitivity" min="10" max="100" value="35" class="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-amber-600">
+        
+        <button id="start-btn" class="w-full mt-6 py-3 bg-amber-600 text-white rounded-xl font-bold shadow-lg active:bg-amber-700 transition-colors">
+            Tap to Start Listening
+        </button>
+        <p id="status" class="text-[10px] text-center mt-3 text-stone-400 uppercase tracking-tighter">Microphone is OFF</p>
+    </div>
+
+    <script>
+        let beads = 0;
+        let malas = 0;
+        let isListening = false;
+        let lastHitTime = 0;
+
+        const beadEl = document.getElementById('bead-display');
+        const malaEl = document.getElementById('mala-display');
+        const sensitivityEl = document.getElementById('sensitivity');
+        const statusEl = document.getElementById('status');
+        const circleEl = document.getElementById('circle');
+
+        function increment() {
+            beads++;
+            if (beads >= 108) {
+                beads = 0;
+                malas++;
+                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            } else {
+                if (navigator.vibrate) navigator.vibrate(30);
+            }
+            beadEl.innerText = beads;
+            malaEl.innerText = malas;
+            
+            // Visual feedback
+            circleEl.classList.add('active-glow', 'scale-105', 'border-amber-400');
+            setTimeout(() => circleEl.classList.remove('active-glow', 'scale-105', 'border-amber-400'), 200);
+        }
+
+        async function startListening() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const analyser = audioContext.createAnalyser();
+                const microphone = audioContext.createMediaStreamSource(stream);
+                
+                analyser.fftSize = 256;
+                microphone.connect(analyser);
+
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                isListening = true;
+                statusEl.innerText = "Listening for sound...";
+                document.getElementById('start-btn').innerText = "Stop Listening";
+                document.getElementById('start-btn').classList.replace('bg-amber-600', 'bg-red-500');
+
+                function checkVolume() {
+                    if (!isListening) return;
+                    analyser.getByteFrequencyData(dataArray);
+                    
+                    // Get average volume
+                    let values = 0;
+                    for (let i = 0; i < dataArray.length; i++) { values += dataArray[i]; }
+                    let average = values / dataArray.length;
+
+                    // Update visualizer bars
+                    document.getElementById('v-1').style.height = (average * 0.5) + 'px';
+                    document.getElementById('v-2').style.height = (average * 1.2) + 'px';
+                    document.getElementById('v-3').style.height = (average * 0.5) + 'px';
+
+                    // If volume is above sensitivity slider value
+                    let threshold = sensitivityEl.value;
+                    let now = Date.now();
+                    
+                    if (average > threshold && (now - lastHitTime) > 800) { 
+                        // 800ms cooldown so it doesn't count the same breath twice
+                        increment();
+                        lastHitTime = now;
+                    }
+                    requestAnimationFrame(checkVolume);
+                }
+                checkVolume();
+
+            } catch (err) {
+                alert("Please allow microphone access to use this feature.");
+                console.error(err);
+            }
+        }
+
+        document.getElementById('start-btn').onclick = function() {
+            if (!isListening) {
+                startListening();
+            } else {
+                location.reload(); // Quickest way to stop audio stream
+            }
+        };
+
+        // Also allow manual tap
+        circleEl.onclick = increment;
+    </script>
+</body>
+</html>
